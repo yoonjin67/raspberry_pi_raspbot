@@ -68,14 +68,14 @@ static int __init sr04_driver_init(void) {
 	if(alloc_chrdev_region(&dev, 0, 1, "sr04")<0) { /* NOTE: DEV_T ALLOC */
 		_printk("Cannot allocate major number, \n find comment \"NOTE: DEV_T ALLOC \"\n, \
 			Quitting without driver ins...\n");
-		return -1;
+		goto chrdev_error;
 	}
 	_printk("Major = %d, Minor = %d", MAJOR(dev),MINOR(dev));
 	cdev_init(&sr04_cdev,&fops);
 	if((cdev_add(&sr04_cdev,dev,1)) < 0) { /* NOTE: ADDING CDEV */
 		_printk("Cannot add cdev: find comment \"NOTE: ADDING CDEV\"\n,\
 			 Quitting without driver ins...\n");\
-		goto class_error;
+		goto cdev_error;
 	}
 	if(IS_ERR(sr04_class = class_create("sr04_class"))) { /*NOTE: CREATING DEV CLASS */
 		_printk("Cannot create class structure,\n \
@@ -123,20 +123,20 @@ static int __init sr04_driver_init(void) {
 	return 0;
 
 
-class_error:
-	class_destroy(sr04_class);
-	cdev_del(&sr04_cdev);
+chrdev_error:
 	unregister_chrdev_region(dev,1);
 	_printk("SR04 Dev. Driver failed");
 	return -1;
+cdev_error:
+	cdev_del(&sr04_cdev);
+	goto chrdev_error;
+class_error:
+	class_destroy(sr04_class);
+	goto cdev_error;
 
 device_creation_error:
 	device_destroy(sr04_class,dev);
-	class_destroy(sr04_class);
-	cdev_del(&sr04_cdev);
-	unregister_chrdev_region(dev,1);
-	_printk("SR04 Dev. Driver failed");
-	return -1;
+	goto class_error;
 }
 
 static void __exit sr04_driver_exit(void) {
