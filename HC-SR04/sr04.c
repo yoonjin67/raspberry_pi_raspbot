@@ -155,17 +155,17 @@ ssize_t sr04_read(struct file *file, char __user *buf, size_t len, loff_t * off)
 	gpio_set_value(TRIG,1);
 	sr04_send_ts = ktime_get_ns();
 	_printk("sr04_send_ts: %llu\n", sr04_send_ts);
-	wait_event_interruptible(waitqueue,echo_status == 0);
+	wait_event_interruptible(waitqueue,echo_status == 0); //wait for interrupt pin
 	gpio_set_value(TRIG,0);
-	if(duration<=0) {
+	if(duration<=0) { //if duration is invalid
 		_printk("SR04 Distance measurement: failed to get ECHO.. : duration is %llu\n", duration);
 		return 0;
 	} else {
-		char dist[15];
+		char dist[5];
 		memset(dist,0,sizeof(dist));
 		sprintf(dist, "%llu", duration*85/10000000);
 		_printk("duration : %llu\n", duration);
-		int copied_bytes=copy_to_user(buf,dist,15);
+		int copied_bytes=copy_to_user(buf,dist,5);  //returning value as character
 		if(copied_bytes<0) {
 			_printk("Distance hasn't copied to user...");
 		}
