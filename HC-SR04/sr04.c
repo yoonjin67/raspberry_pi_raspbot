@@ -1,27 +1,41 @@
-#include<linux/kernel.h>
 #include<linux/init.h>
+#include<linux/delay.h>
+#include<linux/workqueue.h>
 #include<linux/module.h>
-#include<linux/kdev_t.h>
-#include<linux/fs.h>
+#include<linux/wait.h>
 #include<linux/cdev.h>
 #include<linux/device.h>
-#include<linux/slab.h>
-#include<linux/uaccess.h>
 #include<linux/err.h>
-#include<linux/delay.h>
-#include<linux/timer.h>
 #include<linux/interrupt.h>
+#include<linux/time.h>
 #include<linux/gpio.h>
-#define ECHO 24
+#define ECHO 536 // gpio-536 (GPIO-24) in debug gpio info
 #define ECHO_LABEL "GPIO_24"
-#define TRIG 23
+#define TRIG 535 // GPIO 23
 #define TRIG_LABEL "GPIO_23"
+static wait_queue_head_t waitqueue;
 
-int echoPinIrq;
-
+int IRQ_NO;
+_Bool echo_status;
 dev_t dev = 0;
 
-uint64_t sr04_send_ts, sr04_recv_ts;
+uint64_t sr04_send_ts, sr04_recv_ts, duration;
+/* start of IRQ Handler */
+
+static irqreturn_t echo_irq_triggered(int irq, void *dev_id) {
+	echo_status = (_Bool)gpio_get_value(ECHO);
+	if(echo_status == 1) {
+		_printk("ECHO INTERRUPT\n");
+	} else {
+		sr04_recv_ts = ktime_get_ns();
+		_printk("SUCCEED TO GET sr04_recv_ts%llu\n", sr04_recv_ts);
+		duration = sr04_recv_ts-sr04_send_ts;
+		wake_up_interruptible(&waitqueue);
+	}
+		
+	return IRQ_HANDLED;
+}
+
 
 /* -- start of function prototype */
  struct class *sr04_class;
@@ -33,14 +47,6 @@ int sr04_driver_release(struct inode *inode, struct file *file) ;
 static void __exit sr04_driver_exit(void);
 
 ssize_t sr04_read(struct file *file, char __user *buf, size_t len, loff_t * off);
-static irqreturn_t irq_measure_distance(int irq, void *dev_id) {
-	static unsigned long flags = 0;
-	local_irq_save(flags);
-	sr04_recv_ts = ktime_get_ns();
-	gpio_set_value(TRIG,0);
-	local_irq_restore(flags);
-	return IRQ_HANDLED;
-}
 
 /* -- end of function prototype -- */
 
@@ -101,22 +107,15 @@ static int __init sr04_driver_init(void) {
 		return -1;
 	}
 
-	echoPinIrq = gpio_to_irq(ECHO);
-	pr_info("ECHO PIN irqNumber = %d", echoPinIrq);
-
-	if(request_irq(echoPinIrq,
-			(void *) irq_measure_distance, 
-			IRQF_TRIGGER_RISING,
-			"sr04",
-			NULL)) {
-		_printk("cannot register echo pin IRQ...");
-		gpio_free(ECHO);
-
+	IRQ_NO = gpio_to_irq(ECHO);
+	if(request_irq(IRQ_NO, echo_irq_triggered, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "hc-sr04", (void *) echo_irq_triggered)) {
+		_printk("cannot register Irq...");
+		free_irq(IRQ_NO, (void *) echo_irq_triggered);
 	}
-
 
 	gpio_direction_output(TRIG,0);
 	gpio_direction_input(ECHO);
+	init_waitqueue_head(&waitqueue);
 	_printk("SR04 Dev. Driver inserted.");
 	return 0;
 
@@ -138,7 +137,7 @@ device_creation_error:
 }
 
 static void __exit sr04_driver_exit(void) {
-	free_irq(echoPinIrq,NULL);
+	free_irq(IRQ_NO, (void *) echo_irq_triggered);
 	gpio_free(ECHO);
 	gpio_free(TRIG);
 	device_destroy(sr04_class,dev);
@@ -150,20 +149,22 @@ static void __exit sr04_driver_exit(void) {
 
 
 ssize_t sr04_read(struct file *file, char __user *buf, size_t len, loff_t * off) {
-	sr04_send_ts = ktime_get_ns();
-	sr04_recv_ts = 0;
 	gpio_set_value(TRIG,1);
-	msleep_interruptible(500);
-
-	int duration = sr04_recv_ts-sr04_send_ts;
-	if(duration<0) {
-		_printk("SR04 Distance measurement: failed to get ECHO..");
+	udelay(10);
+	gpio_set_value(TRIG,0);
+	udelay(10);
+	sr04_send_ts = ktime_get_ns();
+	_printk("sr04_send_ts: %llu\n", sr04_send_ts);
+	wait_event_interruptible(waitqueue,echo_status == 0);
+	if(duration<=0) {
+		_printk("SR04 Distance measurement: failed to get ECHO.. : duration is %llu\n", duration);
 		return 0;
 	} else {
-		char dist[5];
-		memset(dist,0,sizeof(char));
-		sprintf(dist, "%d", (int) ((340*duration)/1000000000)/2);
-		int copied_bytes=copy_to_user(buf,dist,5);
+		char dist[15];
+		memset(dist,0,sizeof(dist));
+		sprintf(dist, "%llu", duration*85/10000000);
+		_printk("duration : %llu\n", duration);
+		int copied_bytes=copy_to_user(buf,dist,15);
 		if(copied_bytes<0) {
 			_printk("Distance hasn't copied to user...");
 		}
