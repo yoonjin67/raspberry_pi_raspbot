@@ -1,4 +1,5 @@
 #include<linux/module.h>
+#include<linux/string.h>
 #include<linux/init.h>
 #include<linux/module.h>
 #include<linux/cdev.h>
@@ -80,12 +81,13 @@ static ssize_t ir_read(struct file *file, char __user *buf, size_t len, loff_t *
 static ssize_t ir_on_off(struct file *file, const char *buf, size_t len, loff_t *off) {
 	char status[4];
 	int err = copy_from_user(status, buf, 4);
+	_printk("status string is %s, right?\n",status);
 	if(err>0) {
 		_printk("not all the bytes has been copied. failed : %d bytes", err);
 	}
-	if(!strcmp(status,"ON")) {
+	if(!strncmp(status,"ON",2)) {
 		gpio_set_value(ON_AVOID,1);
-	} else if (!strcmp(status, "OFF")) {
+	} else if (!strncmp(status, "OFF",3)) {
 		gpio_set_value(ON_AVOID,0);
 	} else {
 		_printk("ERROR: Unknown command, select between ON/OFF\n");
@@ -98,7 +100,7 @@ static int __init ir_driver_init(void) {
 	int minor = MINOR(dev);
 	dev = MKDEV(major,minor);
 	if((alloc_chrdev_region(&dev,minor,1,"ir_avoid")) < 0) {
-		_printk("Cannot allocate major number");
+		_printk("Cannot allocate chrdev region");
 		goto _unreg;
 	}
 	_printk("Major = %d, Minor = %d\n", major, minor);

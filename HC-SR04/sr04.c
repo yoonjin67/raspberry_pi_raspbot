@@ -66,7 +66,7 @@ int sr04_driver_release(struct inode *inode, struct file *file) {
 
 static int __init sr04_driver_init(void) {
 	if(alloc_chrdev_region(&dev, 0, 1, "sr04")<0) { /* NOTE: DEV_T ALLOC */
-		_printk("Cannot allocate major number, \n find comment \"NOTE: DEV_T ALLOC \"\n, \
+		_printk("Cannot allocate chrdev region, \n find comment \"NOTE: DEV_T ALLOC \"\n, \
 			Quitting without driver ins...\n");
 		goto chrdev_error;
 	}
