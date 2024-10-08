@@ -9,14 +9,14 @@
 #include<linux/interrupt.h>
 #include<linux/time.h>
 #include<linux/gpio.h>
-#define ECHO 536 // gpio-536 (GPIO-24) in debug gpio info
+#define ECHO 536 // gpio-536 (GPIO-24) in /sys/kernel/debug/info 
 #define ECHO_LABEL "GPIO_24"
-#define TRIG 535 // GPIO 23
+#define TRIG 535 // GPIO 23 // gpio-535 (GPIO-23) in /sys/kernel/debug/info 
 #define TRIG_LABEL "GPIO_23"
-static wait_queue_head_t waitqueue;
+static wait_queue_head_t waitqueue; //waitqueue for wait and wakeup
 
-int IRQ_NO;
-_Bool echo_status;
+int IRQ_NO; //variabe for storing echo pin irq
+_Bool echo_status; //for checking ECHO pin status, needed for identifying RISING/FALLING
 dev_t dev = 0;
 
 uint64_t sr04_send_ts, sr04_recv_ts, duration;
@@ -89,6 +89,8 @@ static int __init sr04_driver_init(void) {
 		goto device_creation_error;
 	}
 
+
+	//gpio availability check
 	if(!gpio_is_valid(ECHO)) {
 		_printk("SR04 ECHO PIN IS NOT WORKING\n");
 	}
@@ -103,12 +105,13 @@ static int __init sr04_driver_init(void) {
 	}
 	if(gpio_request(ECHO,ECHO_LABEL)<0) {
 		_printk("ERROR ON ECHO REQUEST");
+		gpio_free(TRIG); //if the program has executed until now, trig is available, and requested succesfully
 		gpio_free(ECHO);
 		return -1;
 	}
 
-	IRQ_NO = gpio_to_irq(ECHO);
-	if(request_irq(IRQ_NO, echo_irq_triggered, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "hc-sr04", (void *) echo_irq_triggered)) {
+	IRQ_NO = gpio_to_irq(ECHO); // GPIO pin as interrupt pin
+	if(request_irq(IRQ_NO, echo_irq_triggered, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "hc-sr04", (void *) echo_irq_triggered)) { //request irq function is for measurement... see the top of the code.
 		_printk("cannot register Irq...");
 		free_irq(IRQ_NO, (void *) echo_irq_triggered);
 	}
@@ -150,12 +153,10 @@ static void __exit sr04_driver_exit(void) {
 
 ssize_t sr04_read(struct file *file, char __user *buf, size_t len, loff_t * off) {
 	gpio_set_value(TRIG,1);
-	udelay(10);
-	gpio_set_value(TRIG,0);
-	udelay(10);
 	sr04_send_ts = ktime_get_ns();
 	_printk("sr04_send_ts: %llu\n", sr04_send_ts);
 	wait_event_interruptible(waitqueue,echo_status == 0);
+	gpio_set_value(TRIG,0);
 	if(duration<=0) {
 		_printk("SR04 Distance measurement: failed to get ECHO.. : duration is %llu\n", duration);
 		return 0;
