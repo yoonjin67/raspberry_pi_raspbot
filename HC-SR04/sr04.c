@@ -25,10 +25,11 @@ uint64_t sr04_send_ts, sr04_recv_ts, duration;
 static irqreturn_t echo_irq_triggered(int irq, void *dev_id) {
 	echo_status = (_Bool)gpio_get_value(ECHO);
 	if(echo_status == 1) {
+		sr04_send_ts = ktime_get_ns();
 		_printk("ECHO INTERRUPT\n");
 	} else {
-		sr04_recv_ts = ktime_get_ns();
 		_printk("SUCCEED TO GET sr04_recv_ts%llu\n", sr04_recv_ts);
+		sr04_recv_ts = ktime_get_ns();
 		duration = sr04_recv_ts-sr04_send_ts;
 		wake_up_interruptible(&waitqueue);
 	}
@@ -38,8 +39,8 @@ static irqreturn_t echo_irq_triggered(int irq, void *dev_id) {
 
 
 /* -- start of function prototype */
- struct class *sr04_class;
- struct cdev sr04_cdev;
+struct class *sr04_class;
+struct cdev sr04_cdev;
 
 static int __init sr04_driver_init(void);
 int sr04_driver_open(struct inode *inode, struct file *file) ;
@@ -147,27 +148,25 @@ static void __exit sr04_driver_exit(void) {
 	class_destroy(sr04_class);
 	cdev_del(&sr04_cdev);
 	unregister_chrdev_region(dev,1);
-	_printk( "SR04 Dev. driver removed." );
+	_printk( "SR04 Dev. Driver removed.\n" );
 }
 
 
 ssize_t sr04_read(struct file *file, char __user *buf, size_t len, loff_t * off) {
 	gpio_set_value(TRIG,1);
-	sr04_send_ts = ktime_get_ns();
-	_printk("sr04_send_ts: %llu\n", sr04_send_ts);
 	wait_event_interruptible(waitqueue,echo_status == 0); //wait for interrupt pin
 	gpio_set_value(TRIG,0);
 	if(duration<=0) { //if duration is invalid
 		_printk("SR04 Distance measurement: failed to get ECHO.. : duration is %llu\n", duration);
 		return 0;
 	} else {
-		char dist[5];
+		char dist[16];
 		memset(dist,0,sizeof(dist));
-		sprintf(dist, "%llu", duration*85/10000000);
+		sprintf(dist, "%llu", duration*170/10000000);
 		_printk("duration : %llu\n", duration);
-		int copied_bytes=copy_to_user(buf,dist,5);  //returning value as character
-		if(copied_bytes<0) {
-			_printk("Distance hasn't copied to user...");
+		int copied_bytes=copy_to_user(buf,dist,16);  //returning value as character
+		if(copied_bytes>0) {
+			_printk("Distance hasn't copied to user...remained bytes: %d", copied_bytes);
 		}
 		return sizeof(dist);
 	}

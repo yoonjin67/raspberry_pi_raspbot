@@ -5,7 +5,7 @@ int main() {
 	char *filename = "/dev/sr04";
 	int fd = open(filename, O_RDONLY,0);
 	
-	char buf[5];
+	char buf[16];
 	pread(fd,buf,sizeof(buf),0);
 	printf("%s\n",buf);
 	return 0;
